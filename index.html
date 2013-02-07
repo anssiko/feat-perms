@@ -1,0 +1,192 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+    <title>Feature Permissions Playground</title>
+    <link href="feat-perms.css" rel="stylesheet"/>
+    <script src="feat-perms.js"></script>
+    <script>
+    window.onload = function () {
+        document.getElementById('example1').textContent = example1.toString();
+        document.getElementById('example2').textContent = example2.toString();
+        document.getElementById('example3').textContent = example3.toString();
+    };
+    
+    function example1() {
+        navigator.contacts.requestPermission();
+        navigator.calendar.requestPermission();
+        navigator.system.requestPermission(function(response) { log(JSON.stringify(response)); });
+    }
+
+    function example2() {
+        navigator.contacts.requestPermission();
+        navigator.calendar.requestPermission(function(response) { log(JSON.stringify(response)); });
+    }
+
+    function example3() {
+        navigator.contacts.requestPermission(function(response) { log(JSON.stringify(response)); });
+    }
+    
+    function log(str) {
+        var log = document.getElementById('log').textContent = str;
+    }
+    
+    function evalScript() {
+        eval(document.getElementById('example_custom').value);
+    }
+    </script>
+</head>
+<body>
+<h1>Feature Permissions Playground</h1>
+
+<div id="updates">
+    <h3>Updates</h3>
+    <p>
+        <time>2011-03-23</time>
+        Related discussion on <a href="http://groups.google.com/group/mozilla-labs/browse_thread/thread/e592b27e54b7f857">
+        Capabilities container</a> at mozilla-labs.
+    </p>
+    <p>
+        <time>2011-03-22</time>
+        Doug Turner is also pondering how to do <a href="http://dougt.org/wordpress/2011/03/device-api-permission-management/">
+        Device API permission management</a>. Added a <a href="#capability">Capability-based Security inspired proposal</a>.
+    </p>
+    <p>
+        <time>2011-03-03</time>
+        Initial version of the demo.
+    </p>
+</div>
+
+<p>This demo implements the
+<a href="http://dev.w3.org/2006/webapi/WebNotifications/publish/FeaturePermissions.html#idl-Permissions">Permissions interface</a>
+with some <a href="#changes">changes</a>. The demo should work with any modern browser. Click <em>Run</em> buttons in
+<a href="#examples">Examples</a> to experiment. Contacts, Calendar and System Information are used as placeholders only,
+and may not be applicable for this model.</p>
+
+<h2>log() Output</h2>
+<pre id="log" class="background_transition">...</pre>
+
+<h2>Examples</h2>
+<div id="examples">
+    <div class="example">
+        <button onclick="example1()">Run</button>
+        <pre id="example1"></pre>
+    </div>
+    <div class="example">
+        <button onclick="example2()">Run</button>
+        <pre id="example2"></pre>
+    </div>
+    <div class="example">
+        <button onclick="example3()">Run</button>
+        <pre id="example3"></pre>
+    </div>
+    <div class="example">
+        <button onclick="evalScript()">Run</button>
+        <textarea id="example_custom">navigator.system.requestPermission(function(response) { log(response.system.permission_level); });</textarea>
+    </div>
+</div>
+
+<h2 id="changes">Changes to Feature Permissions Interface</h2>
+
+<h3>Option A: Each Device API implements Permissions (this demo)</h3>
+
+<p>E.g. <code>FoobarSensor implements Permissions</code>, where FoobarSensor is any applicable Device API:</p>
+<pre>
+interface FoobarSensor : Permissions {
+// ...
+}
+</pre>
+
+<p>Each interface that implements Permissions has a unique <code>feature</code> id.</p>
+<pre>
+console.log(navigator.foobar.feature); // returns "foobar"
+</pre>
+
+<p><code>requestPermission()</code> can drop its first <code>feature</code> argument.
+If <code>requestPermission()</code> is invoked with undefined arguments the user interaction
+(such as displaying an infobar) is deferred until <code>requestPermission()</code> is invoked
+with a non-null callback (similar to the proxy design pattern):</p>
+<pre>
+navigator.foobar.requestPermission(); // returns nothing
+</pre>
+
+<p>If the <code>callback</code> is non-null in <code>requestPermission(callback)</code>, a user interface
+is shown to the user from where the user is able to change feature permission settings or dismiss the UI.
+The UI includes all feature requests, including those deferred (callback is undefined)
+in the browsing context. The callback is invoked only after user's explicit consent is received. If the
+user chooses to dismiss the UI the callback is not invoked. For example, to ask for foobar and baz feature permissions:</p>
+<pre>
+navigator.foobar.requestPermission();
+navigator.baz.requestPermission(function(response) { console.log(response); });
+</pre>
+
+<p>The callback <code>response</code> returned is an object. The property names of the <code>response</code>
+object map to <code>feature</code> identifiers, the property values to feature's properties such as <code>permission_level</code>.
+System default permission levels are used, if the user does not explicitly set the permission permission level.
+For example, if the user allows access to <code>foobar</code> feature but leaves the <code>baz</code> feature
+permission level to default the following <code>response</code> is returned:</p>
+<pre>
+{
+  'foobar': {'permission_level': 2}, // USER_ALLOWED
+  'baz': {'permission_level': -1}    // DEFAULT_DENIED
+}
+</pre>
+
+<p>If <code>feature</code> parameter passed to <code>permissionLevel(feature)</code> getter is undefined (i.e. not defined),
+the permission level of the interface that implements <code>Permissions</code> is returned:</p>
+<pre>
+navigator.foobar.permissionLevel(); // returns foobar's permission_level, e.g. 2 for USER_ALLOWED
+</pre>
+
+<h3 id="capability">Option B: Capability-based Security-ish Way</h3>
+    
+<p>The API objects are exposed only if the user has given permission. The objects are passed by reference to the success callback:</p>
+<pre>
+function success(response) {
+    // case 1: the API is exposed only if the user has given permission
+    if (response.foobar !== 'undefined') {
+        response.foobar.doSomething(); // do something with the API
+    }
+
+    // case 2: the entry point is known e.g. navigator.baz, an equality comparison works
+    if (navigator.baz === response.baz) {
+        response.baz.doSomethingElse();
+    }
+}
+
+function error(response) {
+    // example response:
+    // {
+    //    'foobar': {'permission_level': -2}, // USER_DENIED
+    //    'baz': {'permission_level': -1}    // DEFAULT_DENIED
+    // }
+    console.log(response.foobar.permission_level); // logs '-2'
+}
+
+// the feature factory
+navigator.requestPermissions(['foobar', 'baz'], success, error);
+    </pre>
+
+<h2>Misc Notes</h2>
+<ul>
+    <li>Decouples feature request(s) from API invocation(s), allows to request multiple permissions up-front
+        (re <a href="http://www.w3.org/2009/dap/track/issues/109">ISSUE-109</a>).</li>
+    <li>Not for all APIs, e.g. not well applicable to Contacts et al. although used
+        in the examples as placeholders) -- 
+        Should go through the existing DAP APIs and see if Feature Permissions works with them.</li>
+    <li>At the minimum, DAP should spec what Web Notifications WG needs for Web Notifications.</li>
+    <li>Feature Permissions spec says: <em>[requestPermission] method should only 
+        be called while handling a user gesture; in other circumstances the user
+        agent should take no action in response</em> -- should align with the <em>API Invocation
+        via DOM Events</em> model spec'd in Contacts.</li>
+</ul>
+
+<h2>Misc UI Ideas</h2>
+<ul>
+    <li>Drag and drop features/feature icons from the infobar/other chrome UI element to the web content/sink element.</li>
+    <li>Feature icons could display information about the action (such as contacts, e.g. their names, to be shared with the
+        web page) while hovered/activated/dragged.</li>
+    <li>Infobar could also have two sinks for allowed and denied features, features could be drag and dropped from one to another.</li>
+</ul>
+<div id="footer">by <a href="http://twitter.com/anssik">Anssi Kostiainen</a></div>
+</body>
+</html>
